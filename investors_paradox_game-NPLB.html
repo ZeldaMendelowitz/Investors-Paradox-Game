@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Investor's Paradox Game — Embedded Dataset (10-asset, min 1 FDA)</title>
+  <style>
+    :root{
+      --bg:#0b132b; --panel:#111827; --card:#1f2937; --ink:#e5e7eb; --muted:#9ca3af;
+      --line:#374151; --accent:#22d3ee; --good:#22c55e; --bad:#ef4444; --warn:#f59e0b;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial;background:var(--bg);color:var(--ink);}
+    header{display:flex;gap:10px;align-items:center;padding:14px 16px;border-bottom:1px solid #0f172a;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0));backdrop-filter: blur(6px);position:sticky;top:0;z-index:5}
+    header h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.3px}
+    main{max-width:1200px;margin:0 auto;padding:16px}
+    .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:end}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 6px 16px rgba(0,0,0,.25)}
+    label{font-size:12px;color:var(--muted);display:block;margin:0 0 6px 2px}
+    input, button{border-radius:10px;border:1px solid #334155;background:#0f172a;color:var(--ink);padding:9px 10px}
+    button{cursor:pointer;background:linear-gradient(180deg,#0ea5e9,#0284c7);border:none;font-weight:700}
+    button.secondary{background:#0f172a;border:1px solid #334155;font-weight:600}
+    .pill{padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid #334155;color:#cbd5e1}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+    .grid{display:grid;grid-template-columns:1fr;gap:14px}
+    @media (min-width: 1000px){.grid{grid-template-columns:1fr 1fr}}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:9px 8px;border-bottom:1px solid #303a4f;font-size:13px;text-align:left;vertical-align:top}
+    th{color:#c7d2fe;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .muted{color:var(--muted)}
+    .good{color:var(--good)}
+    .bad{color:var(--bad)}
+    #log{height:420px;overflow:auto;font-size:13px;line-height:1.35;background:#0b1220;border-radius:12px;border:1px solid #2b3550;padding:10px}
+    .stat{font-weight:800}
+    .kpi{display:flex;gap:20px;flex-wrap:wrap}
+    .kpi div{background:var(--panel);border:1px solid var(--line);padding:10px 12px;border-radius:12px}
+  
+/* FDA finalize button in green */
+#btnFDA{
+  background: linear-gradient(180deg, var(--good), #16a34a);
+  border: none;
+  color: white;
+  font-weight: 800;
+}
+#btnFDA:hover{ filter: brightness(1.05); }
+
+/* Out-of-money modal */
+#modalOutOfMoney{position:fixed;inset:0;display:none;z-index:99}
+#modalOutOfMoney.show{display:block}
+#modalOutOfMoney .modal-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.6);backdrop-filter: blur(2px);}
+#modalOutOfMoney .modal-card{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:520px;width:92%;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+#modalOutOfMoney .modal-title{margin:0 0 8px 0}
+#modalOutOfMoney .modal-text{margin:6px 0;color:var(--ink)}
+#modalOutOfMoney .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}
+#modalOutOfMoney #btnResetGame{background:linear-gradient(180deg,#10b981,#059669);color:#fff;font-weight:800;border:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>🧪 Investor's Paradox Game</h1>
+</header>
+
+<main>
+  <section class="card bar">
+    <div>
+      <label for="fund">Fund Name</label>
+      <input id="fund" placeholder="e.g., Verdant Rx" />
+    </div>
+    <div>
+      <label for="capital">Starting Capital (USD Millions)</label>
+      <input id="capital" type="number" step="10" value="500" />
+    </div>
+    <div class="row">
+      <div>
+        <label>&nbsp;</label>
+        <button id="btnDeal">Display Drugs Available to Investor</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button id="btnReset" class="secondary">Reset</button>
+      </div>
+    </div>
+    <div style="flex:1 1 auto"></div>
+  </section>
+
+  <section class="card">
+    <div class="kpi">
+      <div>💰 Capital Remaining: <span id="cash" class="stat mono">—</span> <span class="muted">($M)</span></div>
+      <div>📛 Fund Prefix: <span id="prefix" class="stat mono">—</span></div>
+      <div>📦 Active Assets: <span id="activeCount" class="stat mono">0</span></div>
+      <div>📅 Investment Round: <span id="turn" class="stat mono">0</span></div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">Portfolio</h3>
+      <table id="portfolio">
+        <thead>
+          <tr>
+            <th>ID</th><th>Indication</th><th>Modality</th><th>Phase</th>
+            <th>P1 Cost / p</th><th>P2 Cost / p</th><th>P3 Cost / p</th>
+            <th>FDA p</th><th>NPV Range</th><th>Status</th><th>Fund?</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="row" style="margin-top:10px">
+        <button id="btnAllocate">Allocate Investments</button>
+        <button id="btnFDA" class="secondary">Finalize: FDA Submissions</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 8px 0;">Log</h3>
+      <div id="log"><em class="muted">Game messages will appear here…</em></div>
+    </div>
+  </section>
+
+  <section class="card" id="summary" style="display:none">
+    <h3 style="margin:0 0 8px 0;">End of Game Summary</h3>
+    <div id="summaryText" class="mono"></div>
+  </section>
+
+  <section class="card" id="summaryChartSection" style="display:none">
+    <h3 style="margin:0 0 8px 0;">Summary Chart</h3>
+    <div id="summaryChart"></div>
+  </section>
+
+
+  <!-- Out of Money Modal -->
+  <div id="modalOutOfMoney" style="display:none" aria-hidden="true">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card" role="dialog" aria-labelledby="oomTitle" aria-modal="true">
+      <h3 id="oomTitle" class="modal-title">Out of Capital</h3>
+      <p class="modal-text">Your portfolio ran out of money to continue drug development of the assets in your portfolio.</p>
+      <p class="modal-text">Click <strong>Reset</strong> to play again.</p>
+      <div class="modal-actions">
+        <button id="btnResetGame">Reset</button>
+      </div>
+    </div>
+  </div>
+
+
+</main>
+
+<script>
+
+function showOutOfMoneyModal(){
+  const modal = document.getElementById('modalOutOfMoney');
+  if(!modal) return;
+  modal.classList.add('show');
+  modal.setAttribute('aria-hidden','false');
+  const btn = document.getElementById('btnResetGame');
+  if(btn && !btn.dataset.bound){
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', resetGame);
+  }
+}
+
+function resetGame(){
+  // simplest reset: reload the page to return to initial state
+  window.location.reload();
+}
+
+const EMBEDDED_CSV = `Drug ID,Indication,Target Pop (US),Target Pop (World),Modality,Phase 1 Cost,Phase 1 Success,Phase 2 Cost,Phase 2 Success,Phase 3 Cost,Phase 3 Success,FDA Approval,NPV Low,NPV High,GCEA Lives (US)
+-1,Hemophilia A,20000,200000,Gene Therapy,$49M,55%,$122M,35%,$189M,40%,75%,$174M,$930M,4000
+-2,Ulcerative Colitis,900000,6000000,Monoclonal Antibody,$59M,70%,$138M,45%,$190M,65%,90%,$148M,$535M,94000
+-3,ALS,30000,200000,RNA Therapy,$58M,60%,$125M,40%,$124M,50%,80%,$240M,$1086M,1000
+-4,Spinal Muscular Atrophy,10000,50000,Gene Therapy,$43M,55%,$107M,35%,$131M,40%,75%,$323M,$750M,2000
+-5,Multiple Sclerosis,1000000,2800000,Small Molecule,$34M,65%,$89M,35%,$133M,55%,85%,$226M,$1176M,243000
+-6,Duchenne Muscular Dystrophy,15000,300000,RNA Therapy,$41M,60%,$139M,40%,$291M,50%,80%,$214M,$572M,1000
+-7,Duchenne Muscular Dystrophy,15000,300000,RNA Therapy,$57M,60%,$134M,40%,$223M,50%,80%,$355M,$1111M,2000
+-8,Multiple Sclerosis,1000000,2800000,Small Molecule,$32M,65%,$117M,35%,$122M,55%,85%,$385M,$795M,176000
+-9,Spinal Muscular Atrophy,10000,50000,Gene Therapy,$31M,55%,$88M,35%,$246M,40%,75%,$184M,$699M,1000
+-10,Crohn's Disease,800000,5000000,Small Molecule,$20M,65%,$102M,35%,$148M,55%,85%,$160M,$902M,124000
+-11,Breast Cancer,280000,2000000,Monoclonal Antibody,$40M,70%,$85M,45%,$290M,65%,90%,$216M,$605M,33000
+-12,Crohn's Disease,800000,5000000,Small Molecule,$32M,65%,$115M,35%,$246M,55%,85%,$204M,$857M,172000
+-13,Obesity,40000000,500000000,Monoclonal Antibody,$32M,70%,$94M,45%,$188M,65%,90%,$1400M,$2273M,2145000
+-14,Alzheimer's Disease,6000000,30000000,Monoclonal Antibody,$37M,70%,$133M,45%,$147M,65%,90%,$1470M,$2375M,818000
+-15,Multiple Sclerosis,1000000,2800000,Monoclonal Antibody,$50M,70%,$112M,45%,$231M,65%,90%,$120M,$826M,156000
+-16,Sickle Cell Disease,100000,2000000,Cell Therapy,$40M,50%,$88M,30%,$143M,45%,75%,$317M,$648M,2000
+-17,Breast Cancer,280000,2000000,Monoclonal Antibody,$40M,70%,$133M,45%,$127M,65%,90%,$198M,$744M,30000
+-18,Parkinson's Disease,1000000,10000000,Small Molecule,$48M,65%,$125M,35%,$199M,55%,85%,$233M,$1048M,207000
+-19,Rheumatoid Arthritis,1500000,20000000,Small Molecule,$41M,65%,$90M,35%,$194M,55%,85%,$882M,$1713M,331000
+-20,Breast Cancer,280000,2000000,Small Molecule,$43M,65%,$73M,35%,$122M,55%,85%,$196M,$797M,60000
+-21,Multiple Sclerosis,1000000,2800000,Small Molecule,$32M,65%,$66M,35%,$140M,55%,85%,$222M,$606M,82000
+-22,Spinal Muscular Atrophy,10000,50000,RNA Therapy,$45M,60%,$84M,40%,$272M,50%,80%,$121M,$891M,0
+-23,Breast Cancer,280000,2000000,Monoclonal Antibody,$31M,70%,$135M,45%,$127M,65%,90%,$311M,$984M,18000
+-24,Huntington's Disease,30000,200000,Gene Therapy,$58M,55%,$114M,35%,$199M,40%,75%,$222M,$536M,4000
+-25,Cystic Fibrosis,30000,100000,Gene Therapy,$50M,55%,$119M,35%,$131M,40%,75%,$292M,$934M,2000
+-26,Duchenne Muscular Dystrophy,15000,300000,Gene Therapy,$51M,55%,$130M,35%,$187M,40%,75%,$130M,$790M,3000
+-27,Type 2 Diabetes,35000000,450000000,Small Molecule,$50M,65%,$130M,35%,$242M,55%,85%,$1078M,$2111M,2450000
+-28,Type 2 Diabetes,35000000,450000000,RNA Therapy,$38M,60%,$110M,40%,$165M,50%,80%,$1383M,$1922M,8722000
+-29,Spinal Muscular Atrophy,10000,50000,RNA Therapy,$47M,60%,$145M,40%,$221M,50%,80%,$123M,$621M,0
+-30,Sickle Cell Disease,100000,2000000,Cell Therapy,$58M,50%,$121M,30%,$284M,45%,75%,$202M,$590M,18000
+-31,Duchenne Muscular Dystrophy,15000,300000,RNA Therapy,$45M,60%,$139M,40%,$145M,50%,80%,$221M,$600M,0
+-32,Crohn's Disease,800000,5000000,Small Molecule,$42M,65%,$92M,35%,$144M,55%,85%,$394M,$954M,31000
+-33,Cystic Fibrosis,30000,100000,Small Molecule,$21M,65%,$130M,35%,$122M,55%,85%,$270M,$1186M,6000
+-34,Alzheimer's Disease,6000000,30000000,Small Molecule,$37M,65%,$111M,35%,$232M,55%,85%,$1425M,$1989M,1444000
+-35,Hemophilia A,20000,200000,Gene Therapy,$38M,55%,$102M,35%,$183M,40%,75%,$341M,$817M,4000
+-36,Asthma,25000000,350000000,Small Molecule,$31M,65%,$90M,35%,$194M,55%,85%,$1294M,$2298M,4439000
+-37,ALS,30000,200000,Gene Therapy,$44M,55%,$123M,35%,$218M,40%,75%,$181M,$986M,6000
+-38,Alzheimer's Disease,6000000,30000000,Monoclonal Antibody,$54M,70%,$140M,45%,$227M,65%,90%,$1228M,$2184M,611000
+-39,Rheumatoid Arthritis,1500000,20000000,Monoclonal Antibody,$51M,70%,$130M,45%,$230M,65%,90%,$890M,$1570M,184000
+-40,Parkinson's Disease,1000000,10000000,Gene Therapy,$47M,55%,$138M,35%,$189M,40%,75%,$186M,$657M,157000
+-41,Alzheimer's Disease,6000000,30000000,Monoclonal Antibody,$33M,70%,$86M,45%,$219M,65%,90%,$1045M,$2053M,963000
+-42,Asthma,25000000,350000000,Monoclonal Antibody,$40M,70%,$105M,45%,$251M,65%,90%,$1386M,$2387M,853000
+-43,Rheumatoid Arthritis,1500000,20000000,Monoclonal Antibody,$58M,70%,$128M,45%,$293M,65%,90%,$900M,$1291M,346000
+-44,ALS,30000,200000,RNA Therapy,$57M,60%,$148M,40%,$165M,50%,80%,$371M,$604M,7000
+-45,Rheumatoid Arthritis,1500000,20000000,Small Molecule,$28M,65%,$101M,35%,$249M,55%,85%,$527M,$1486M,194000
+-46,Crohn's Disease,800000,5000000,Small Molecule,$47M,65%,$77M,35%,$239M,55%,85%,$361M,$1179M,76000
+-47,Hemophilia B,15000,150000,Gene Therapy,$34M,55%,$136M,35%,$208M,40%,75%,$377M,$1127M,2000
+-48,Ulcerative Colitis,900000,6000000,Monoclonal Antibody,$59M,70%,$105M,45%,$156M,65%,90%,$236M,$536M,121000
+-49,Ulcerative Colitis,900000,6000000,Small Molecule,$43M,65%,$79M,35%,$138M,55%,85%,$212M,$537M,83000
+-50,Parkinson's Disease,1000000,10000000,Gene Therapy,$32M,55%,$109M,35%,$174M,40%,75%,$152M,$511M,71000
+-51,Hemophilia A,20000,200000,Monoclonal Antibody,$33M,70%,$93M,45%,$198M,65%,90%,$365M,$515M,2000
+-52,HIV,1100000,38000000,Small Molecule,$22M,65%,$100M,35%,$188M,55%,85%,$942M,$1581M,137000
+-53,Parkinson's Disease,1000000,10000000,Small Molecule,$23M,65%,$94M,35%,$107M,55%,85%,$239M,$885M,124000
+-54,Rheumatoid Arthritis,1500000,20000000,Small Molecule,$48M,65%,$103M,35%,$250M,55%,85%,$979M,$1647M,272000
+-55,Asthma,25000000,350000000,Monoclonal Antibody,$40M,70%,$90M,45%,$199M,65%,90%,$1007M,$2304M,3443000
+-56,Ulcerative Colitis,900000,6000000,Monoclonal Antibody,$41M,70%,$120M,45%,$190M,65%,90%,$133M,$915M,161000
+-57,Lung Cancer,220000,1800000,Monoclonal Antibody,$56M,70%,$140M,45%,$248M,65%,90%,$118M,$1035M,7000
+-58,Asthma,25000000,350000000,Small Molecule,$22M,65%,$80M,35%,$179M,55%,85%,$1487M,$2351M,4454000
+-59,Parkinson's Disease,1000000,10000000,Gene Therapy,$46M,55%,$150M,35%,$192M,40%,75%,$363M,$816M,119000
+-60,Asthma,25000000,350000000,Small Molecule,$33M,65%,$105M,35%,$148M,55%,85%,$1245M,$2458M,5846000
+-61,ALS,30000,200000,Gene Therapy,$37M,55%,$144M,35%,$128M,40%,75%,$196M,$662M,4000
+-62,Spinal Muscular Atrophy,10000,50000,RNA Therapy,$38M,60%,$123M,40%,$157M,50%,80%,$218M,$784M,2000
+-63,Obesity,40000000,500000000,Small Molecule,$41M,65%,$70M,35%,$222M,55%,85%,$1128M,$2357M,1703000
+-64,Huntington's Disease,30000,200000,Gene Therapy,$50M,55%,$82M,35%,$254M,40%,75%,$286M,$936M,4000
+-65,Alzheimer's Disease,6000000,30000000,Monoclonal Antibody,$50M,70%,$105M,45%,$268M,65%,90%,$1366M,$2360M,753000
+-66,Spinal Muscular Atrophy,10000,50000,RNA Therapy,$60M,60%,$115M,40%,$213M,50%,80%,$225M,$1184M,1000
+-67,Type 2 Diabetes,35000000,450000000,RNA Therapy,$42M,60%,$123M,40%,$206M,50%,80%,$1347M,$2171M,2134000
+-68,Sickle Cell Disease,100000,2000000,Cell Therapy,$36M,50%,$118M,30%,$127M,45%,75%,$204M,$964M,22000
+-69,ALS,30000,200000,Gene Therapy,$53M,55%,$138M,35%,$227M,40%,75%,$117M,$813M,3000
+-70,Obesity,40000000,500000000,Small Molecule,$42M,65%,$82M,35%,$190M,55%,85%,$1292M,$1917M,9948000
+-71,Breast Cancer,280000,2000000,Small Molecule,$35M,65%,$60M,35%,$219M,55%,85%,$129M,$904M,32000
+-72,Spinal Muscular Atrophy,10000,50000,RNA Therapy,$58M,60%,$107M,40%,$217M,50%,80%,$370M,$999M,2000
+-73,Lung Cancer,220000,1800000,Small Molecule,$39M,65%,$70M,35%,$181M,55%,85%,$388M,$1199M,11000
+-74,Hemophilia A,20000,200000,Monoclonal Antibody,$45M,70%,$83M,45%,$122M,65%,90%,$167M,$732M,4000
+-75,Breast Cancer,280000,2000000,Monoclonal Antibody,$39M,70%,$101M,45%,$225M,65%,90%,$315M,$972M,21000
+-76,ALS,30000,200000,Gene Therapy,$35M,55%,$150M,35%,$199M,40%,75%,$165M,$693M,3000
+-77,Obesity,40000000,500000000,Small Molecule,$36M,65%,$96M,35%,$158M,55%,85%,$1250M,$2271M,9160000
+-78,Hemophilia B,15000,150000,Gene Therapy,$57M,55%,$136M,35%,$144M,40%,75%,$293M,$662M,2000
+-79,Spinal Muscular Atrophy,10000,50000,Gene Therapy,$58M,55%,$121M,35%,$239M,40%,75%,$342M,$521M,2000
+-80,Lung Cancer,220000,1800000,Monoclonal Antibody,$59M,70%,$118M,45%,$165M,65%,90%,$226M,$785M,40000
+-81,Duchenne Muscular Dystrophy,15000,300000,RNA Therapy,$56M,60%,$96M,40%,$264M,50%,80%,$370M,$727M,1000
+-82,HIV,1100000,38000000,RNA Therapy,$51M,60%,$120M,40%,$146M,50%,80%,$838M,$1292M,160000
+-83,Hemophilia A,20000,200000,Monoclonal Antibody,$42M,70%,$116M,45%,$238M,65%,90%,$212M,$543M,2000
+-84,Crohn's Disease,800000,5000000,Monoclonal Antibody,$47M,70%,$98M,45%,$211M,65%,90%,$305M,$629M,141000
+-85,Rheumatoid Arthritis,1500000,20000000,Small Molecule,$31M,65%,$119M,35%,$246M,55%,85%,$755M,$1762M,139000
+-86,Multiple Sclerosis,1000000,2800000,Monoclonal Antibody,$56M,70%,$120M,45%,$209M,65%,90%,$282M,$877M,149000
+-87,Asthma,25000000,350000000,Monoclonal Antibody,$52M,70%,$137M,45%,$298M,65%,90%,$1391M,$1812M,2769000
+-88,Lung Cancer,220000,1800000,Monoclonal Antibody,$53M,70%,$87M,45%,$281M,65%,90%,$197M,$536M,16000
+-89,Type 2 Diabetes,35000000,450000000,Small Molecule,$39M,65%,$117M,35%,$118M,55%,85%,$1218M,$2121M,4619000
+-90,Multiple Sclerosis,1000000,2800000,Monoclonal Antibody,$48M,70%,$133M,45%,$243M,65%,90%,$105M,$1029M,178000
+-91,ALS,30000,200000,Gene Therapy,$51M,55%,$123M,35%,$284M,40%,75%,$115M,$1197M,5000
+-92,Alzheimer's Disease,6000000,30000000,Small Molecule,$38M,65%,$117M,35%,$207M,55%,85%,$1403M,$2371M,915000
+-93,ALS,30000,200000,Gene Therapy,$37M,55%,$140M,35%,$206M,40%,75%,$208M,$722M,4000
+-94,Ulcerative Colitis,900000,6000000,Monoclonal Antibody,$32M,70%,$88M,45%,$248M,65%,90%,$277M,$775M,209000
+-95,Multiple Sclerosis,1000000,2800000,Small Molecule,$27M,65%,$123M,35%,$148M,55%,85%,$167M,$848M,149000
+-96,HIV,1100000,38000000,RNA Therapy,$34M,60%,$103M,40%,$201M,50%,80%,$682M,$1250M,133000
+-97,Spinal Muscular Atrophy,10000,50000,RNA Therapy,$60M,60%,$85M,40%,$129M,50%,80%,$400M,$1094M,2000
+-98,Huntington's Disease,30000,200000,RNA Therapy,$58M,60%,$119M,40%,$300M,50%,80%,$337M,$902M,1000
+-99,Cystic Fibrosis,30000,100000,Small Molecule,$37M,65%,$102M,35%,$177M,55%,85%,$309M,$912M,5000
+-100,Spinal Muscular Atrophy,10000,50000,RNA Therapy,$51M,60%,$127M,40%,$248M,50%,80%,$227M,$993M,1000`;
+
+/* Utilities */
+const $ = s => document.querySelector(s);
+const el = (t, attrs={}) => Object.assign(document.createElement(t), attrs);
+const clamp01 = x => Math.min(1, Math.max(0, x));
+const pct = p => Math.round(p*100)+'%';
+const fmtM = n => Math.round(Number(n) || 0).toString();
+const fmtB = nM => Math.round(Number(nM || 0) / 1000).toString();
+function mulberry32(seed){ let t=seed>>>0; return function(){ t+=0x6D2B79F5; let r=Math.imul(t^t>>>15,1|t); r^=r+Math.imul(r^r>>>7,61|r); return ((r^r>>>14)>>>0)/4294967296; }; }
+function hash32(str){ let h=2166136261>>>0; for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); } return h>>>0; }
+let RNG = Math.random;
+function reseed(seedStr){ if(!seedStr){RNG=Math.random;return;} RNG=mulberry32(hash32(seedStr)); }
+
+/* CSV parsing */
+function parseMoneyM(x){
+  if(x==null) return NaN;
+  if(typeof x==='number') return x;
+  const s=(''+x).trim().replace(/[, ]/g,'');
+  if(!s) return NaN;
+  const m=s.match(/^\$?(-?\d*\.?\d+)\s*([mb])?i?l?l?i?o?n?$/i);
+  if(m){ const val=parseFloat(m[1]); return (m[2]||'').toLowerCase()==='b'? val*1000 : val; }
+  const v=parseFloat(s); return isNaN(v)? NaN : v;
+}
+function parseProb(x){
+  if(x==null) return NaN;
+  if(typeof x==='number') return clamp01(x>1? x/100 : x);
+  const s=(''+x).trim(); if(!s) return NaN;
+  if(s.endsWith('%')) return clamp01(parseFloat(s)/100);
+  const v=parseFloat(s); return isNaN(v)? NaN : clamp01(v>1? v/100 : v);
+}
+function parseCSV(text){
+  const rows=[]; let i=0, field='', row=[], inQ=false;
+  const pushF=()=>{ row.push(field); field=''; };
+  const pushR=()=>{ rows.push(row); row=[]; };
+  while(i<text.length){ const c=text[i];
+    if(inQ){ if(c=='"'){ if(text[i+1]=='"'){field+='"';i++;} else inQ=false; } else field+=c; }
+    else{ if(c=='"') inQ=true; else if(c==',') pushF(); else if(c=='\n'){ pushF(); pushR(); } else if(c!='\r') field+=c; }
+    i++; }
+  if(field.length>0||row.length>0){ pushF(); pushR(); }
+  while(rows.length && rows[rows.length-1].every(x=>(''+x).trim()==='')) rows.pop();
+  return rows;
+}
+function normalizeHeader(h){ return h.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+const HEADER_MAP = {
+  id: ['id','drug id','asset id','code'],
+  indication: ['indication','disease','label'],
+  modality: ['modality','moa','mechanism'],
+  p1c: ['p1 cost','phase 1 cost','phase i cost','cost p1'],
+  p1p: ['p1 p','phase 1 p','p1 prob','phase 1 prob','phase 1 success','p1 success'],
+  p2c: ['p2 cost','phase 2 cost','phase ii cost','cost p2'],
+  p2p: ['p2 p','phase 2 p','p2 prob','phase 2 prob','phase 2 success','p2 success'],
+  p3c: ['p3 cost','phase 3 cost','phase iii cost','cost p3'],
+  p3p: ['p3 p','phase 3 p','p3 prob','phase 3 prob','phase 3 success','p3 success'],
+  fda: ['fda p','approval p','fda approval','nda bla p','fda approval probability'],
+  npvLow: ['npv low','npv low $m','npv_min','npv low m'],
+  npvHigh: ['npv high','npv high $m','npv_max','npv high m'],
+  gceaLives: ['gcea lives us','lives us','us lives','gcea_us','gcea lives (us)']
+};
+function mapHeaders(head){
+  const norm = head.map(normalizeHeader);
+  const map={};
+  for(const [key,aliases] of Object.entries(HEADER_MAP)){ const idx = norm.findIndex(h=>aliases.includes(h)); if(idx>=0) map[key]=idx; }
+  const req=['id','indication','modality','p1c','p1p','p2c','p2p','p3c','p3p','fda','npvLow','npvHigh','gceaLives'];
+  const missing=req.filter(k=>!(k in map));
+  return {map, missing};
+}
+function loadCSV(text){
+  const rows = parseCSV(text);
+  if(!rows.length) throw new Error('CSV had no rows.');
+  const {map, missing} = mapHeaders(rows[0]);
+  if(missing.length) throw new Error('Missing expected headers: '+missing.join(', '));
+  const assets=[];
+  for(let r=1;r<rows.length;r++){ const row=rows[r];
+    if(row.every(x=>(''+x).trim()==='')) continue;
+    const a={ id:(row[map.id]??'').toString().trim(),
+      indication:(row[map.indication]??'').toString().trim(),
+      modality:(row[map.modality]??'').toString().trim(),
+      p1c:parseMoneyM(row[map.p1c]), p1p:parseProb(row[map.p1p]),
+      p2c:parseMoneyM(row[map.p2c]), p2p:parseProb(row[map.p2p]),
+      p3c:parseMoneyM(row[map.p3c]), p3p:parseProb(row[map.p3p]),
+      fda:parseProb(row[map.fda]),
+      npvLow:parseMoneyM(row[map.npvLow]), npvHigh:parseMoneyM(row[map.npvHigh]),
+      gceaLives: parseInt((''+row[map.gceaLives]).replace(/[^0-9-]/g,''))||0
+    };
+    // Monotone constraints
+    a.p2p = Math.min(a.p1p, a.p2p);
+    a.p3p = Math.min(a.p2p, a.p3p);
+    a.fda = Math.min(a.p3p, a.fda);
+    if(a.npvLow>a.npvHigh) { const t=a.npvLow; a.npvLow=a.npvHigh; a.npvHigh=t; }
+    assets.push(a);
+  }
+  return assets;
+}
+
+/* State */
+const State = { master: [], deck: [], fundName:'', prefix:'', startCapM:500, cashM:500, turn:0, ended:false };
+
+/* Render */
+function renderStatus(){ $('#cash').textContent=fmtM(State.cashM); $('#prefix').textContent=State.prefix||'—'; $('#turn').textContent=State.turn; $('#activeCount').textContent=State.deck.filter(a=>a.status==='Active'&&[1,2,3,'FDA'].includes(a.phase)).length; }
+function td(text, cls=''){ const c=el('td'); if(cls) c.className=cls; c.textContent=text; return c; }
+function tdNode(node){ const c=el('td'); c.appendChild(node); return c; }
+function renderTable(){
+  const tb = $('#portfolio tbody'); tb.innerHTML='';
+  State.deck.forEach((a,idx)=>{
+    const tr=el('tr');
+    const prettyId = `${State.prefix}-${a.baseId}`;
+    const phaseLabel = a.phase===1?'P1':a.phase===2?'P2':a.phase===3?'P3':a.phase==='FDA'?'FDA':'—';
+    const statClass = (['Removed','Rejected'].includes(a.status)) ? 'bad' : (['Approved','Pending FDA'].includes(a.status) ? 'good' : '');
+    tr.appendChild(td(prettyId));
+    tr.appendChild(td(a.indication));
+    tr.appendChild(td(a.modality));
+    tr.appendChild(td(phaseLabel));
+    tr.appendChild(td(`$${fmtM(a.p1c)} / ${pct(a.p1p)}`));
+    tr.appendChild(td(`$${fmtM(a.p2c)} / ${pct(a.p2p)}`));
+    tr.appendChild(td(`$${fmtM(a.p3c)} / ${pct(a.p3p)}`));
+    tr.appendChild(td(pct(a.fda)));
+    tr.appendChild(td(`$${fmtM(a.wLow)}–$${fmtM(a.wHigh)}M`));
+    tr.appendChild(td(a.status, statClass));
+    const canFund = a.status==='Active' && [1,2,3].includes(a.phase);
+    const cb = el('input',{type:'checkbox',disabled:!canFund,checked:canFund}); cb.dataset.index=idx;
+    tr.appendChild(tdNode(cb));
+    tb.appendChild(tr);
+  });
+}
+
+/* Log */
+function log(msg){ const d=el('div'); d.textContent=msg; $('#log').appendChild(d); $('#log').scrollTop=$('#log').scrollHeight; }
+function logErr(msg){ const d=el('div'); d.textContent=msg; d.style.color='var(--bad)'; $('#log').appendChild(d); $('#log').scrollTop=$('#log').scrollHeight; }
+function logClear(){ $('#log').innerHTML='<em class="muted">Game messages will appear here…</em>'; }
+
+/* Flow */
+function initFromControls(){
+  const name = ($('#fund').value||'Verdant Rx').trim();
+  const cap = parseFloat($('#capital').value)||500;
+  State.fundName=name; State.prefix=name.replace(/[^A-Za-z]/g,'').toUpperCase().slice(0,3)||'FUN';
+  State.startCapM=cap; State.cashM=cap; State.turn=0; State.ended=false; renderStatus();
+}
+function deal(){ // always 10
+  const n=10;
+  if(State.master.length===0){ logErr('Embedded dataset failed to load. Reload.'); return; }
+  if(State.master.length < n){ logErr(`Not enough valid rows to deal ${n} (only ${State.master.length}).`); return; }
+  initFromControls();
+  const idxs=[...Array(State.master.length).keys()];
+  for(let i=idxs.length-1;i>0;i--){ const j=Math.floor(RNG()*(i+1)); [idxs[i],idxs[j]]=[idxs[j],idxs[i]]; }
+  const picks = idxs.slice(0,n).map(i=>State.master[i]);
+  State.deck = picks.map(a=>({
+    baseId: (a.id||'—').toString().replace(/^.*-/, '').replace(/[^A-Za-z0-9]/g,''),
+    indication:a.indication, modality:a.modality,
+    p1c:a.p1c,p1p:a.p1p,p2c:a.p2c,p2p:a.p2p,p3c:a.p3c,p3p:a.p3p,
+    fda:a.fda, npvLow:a.npvLow, npvHigh:a.npvHigh, gceaLives:a.gceaLives||0,
+    wLow:a.npvLow,wHigh:a.npvHigh, phase:1, status:'Active', launchPriceUSD:undefined
+  }));
+  logClear(); log(`Dealt ${State.deck.length} assets to ${State.fundName} (${State.prefix}).`);
+  renderTable(); renderStatus();
+}
+
+function allocateAndResolve(){
+  if(State.ended) return;
+
+  // Gather selected assets
+  const checks = Array.from(document.querySelectorAll('#portfolio tbody input[type="checkbox"]:not([disabled])'));
+  const toFund = checks.filter(c=>c.checked).map(c=>State.deck[+c.dataset.index]);
+  if(!toFund.length){ log('No assets selected to fund this round.'); return; }
+
+  // Compute spend for this round
+  let spendM = 0;
+  toFund.forEach(a=>{
+    if(a.phase===1) spendM += a.p1c;
+    else if(a.phase===2) spendM += a.p2c;
+    else if(a.phase===3) spendM += a.p3c;
+  });
+
+  // Insufficient capital -> end and show summary (no fairness override)
+  if(spendM > State.cashM + 1e-9){
+    logErr(`Insufficient capital. Need $${fmtM(spendM)}M, have $${fmtM(State.cashM)}M.`);
+    State.ended = true;
+    showOutOfMoneyModal();
+    renderTable(); renderStatus();
+    showSummary();
+    return;
+  }
+
+  // Spend and advance round
+  State.cashM -= spendM;
+  State.turn += 1;
+  log(`Investment Round ${State.turn}: Spent $${fmtM(spendM)}M to fund ${toFund.length} asset(s). Resolving…`);
+// Resolve outcomes
+  toFund.forEach(a=>{
+    const p = (a.phase===1)?a.p1p:(a.phase===2)?a.p2p:a.p3p;
+    const r = RNG();
+    const ok = r <= p;
+    if(ok){
+      log(`✔ ${a.indication} [${a.modality}] ${['Phase 1','Phase 2','Phase 3'][a.phase-1]} succeeded.`);
+      tightenNPV(a);
+      if(a.phase===3){ a.phase='FDA'; a.status='Pending FDA'; } else a.phase += 1;
+    } else {
+      logErr(`✖ ${a.indication} [${a.modality}] ${['Phase 1','Phase 2','Phase 3'][a.phase-1]} failed.`);
+      a.status = `Drug Failed Phase ${a.phase}`;
+      a.phase = '—';
+    }
+  });
+  // If all drugs have failed (no Active or FDA or Approved assets remain), end game and show summary/graph.
+  const anyActive = State.deck.some(a => a.status === 'Active' && [1,2,3].includes(a.phase));
+  const anyFDA    = State.deck.some(a => a.phase === 'FDA' && a.status !== 'Removed');
+  const anyApproved = State.deck.some(a => a.status === 'Approved');
+  const anyFailedish = State.deck.length > 0 && !anyActive && !anyFDA && !anyApproved;
+  if (anyFailedish) {
+    State.ended = true;
+    renderTable(); renderStatus(); showSummary();
+    return;
+  }
+
+
+
+
+  renderTable(); renderStatus();
+}
+
+
+function finalizeFDA(){
+    // If out of capital and no assets ready for FDA, inform player to reset and stop
+    if(State.cashM <= 0){
+      const anyReady = State.deck && State.deck.some(a=>a.phase==='FDA' && a.status!=='Removed');
+      if(!anyReady){
+        showOutOfMoneyModal();
+        return;
+      }
+    }
+
+    const approvedBefore = State.deck.filter(a=>a.status==='Approved').length;
+if(State.ended) return;
+  const cands = State.deck.filter(a=>a.phase==='FDA' && a.status!=='Removed');
+  if(!cands.length){
+  log('No assets ready for FDA submission.');
+  ensureAtLeastOneApproval();
+  const approvedAfter = State.deck.filter(a=>a.status==='Approved').length;
+  if(approvedAfter > approvedBefore){
+    // Show summary + chart immediately upon any new approval this round
+    showSummary();
+  }
+  State.ended=true;
+  renderTable(); renderStatus(); showSummary();
+  return;
+  // If all drugs have failed (no Active, no FDA, no Approved), end and show summary.
+  {
+    const anyActive = State.deck.some(a => a.status === 'Active' && [1,2,3].includes(a.phase));
+    const anyFDA    = State.deck.some(a => a.phase === 'FDA' && a.status !== 'Removed');
+    const anyApproved = State.deck.some(a => a.status === 'Approved');
+    if (!anyActive && !anyFDA && !anyApproved) {
+      State.ended = true;
+      renderTable(); renderStatus(); showSummary();
+      return;
+    }
+  }
+
+}
+  cands.forEach(a=>{ const r=RNG(); const ok=r<=a.fda; if(ok){ const final=+(a.wLow+RNG()*(a.wHigh-a.wLow)).toFixed(3); a.status='Approved'; a.phase='FDA'; a.wLow=final; a.wHigh=final; log(`🟢 FDA Approved: ${a.indication} [${a.modality}] → Final NPV $${fmtM(final)}M.`); collectLaunchPrice(a); } else { a.status='Rejected'; a.phase='—'; logErr(`🔴 FDA Rejected: ${a.indication} [${a.modality}].`); } });
+  ensureAtLeastOneApproval();
+  const open = State.deck.some(a=>a.status==='Active' && [1,2,3].includes(a.phase));
+  if(!open){ State.ended=true; renderTable(); renderStatus(); showSummary(); } else { renderTable(); renderStatus(); }
+}
+
+/* Mechanics */
+function tightenNPV(a){ const span=Math.max(0,a.wHigh-a.wLow); const f={1:0.15,2:0.03,3:0.45}[a.phase]||0; const cut=span*f; if(RNG()<0.5) a.wLow=+(a.wLow+cut).toFixed(3); else a.wHigh=+(a.wHigh-cut).toFixed(3); if(a.wHigh<a.wLow){ const m=(a.wHigh+a.wLow)/2; a.wLow=m; a.wHigh=m; } }
+
+/* Launch pricing */
+function collectLaunchPrice(a){}
+
+/* Fairness ≥1 */
+function ensureAtLeastOneApproval(){
+  let approved = State.deck.filter(a=>a.status==='Approved');
+  if(approved.length>=1) return;
+  let rejectedFDA = State.deck.filter(a=>a.status==='Rejected' && a.phase==='—' && typeof a.fda==='number');
+  rejectedFDA.sort((a,b)=>(b.fda||0)-(a.fda||0));
+  if(rejectedFDA.length){ const a=rejectedFDA.shift(); const final=+(a.wLow+RNG()*(a.wHigh-a.wLow)).toFixed(3); a.status='Approved'; a.phase='FDA'; a.wLow=final; a.wHigh=final; log(`⚖️ Fairness override: Promoted to Approved → ${a.indication} [${a.modality}], NPV $${fmtM(final)}M.`); collectLaunchPrice(a); return; }
+  let pool = State.deck.filter(a=>a.status!=='Approved' && typeof a.fda==='number');
+  pool.sort((a,b)=>(b.fda||0)-(a.fda||0));
+  if(pool.length){ const a=pool.shift(); const final=+(a.wLow+RNG()*(a.wHigh-a.wLow)).toFixed(3); a.status='Approved'; a.phase='FDA'; a.wLow=final; a.wHigh=final; log(`🚀 Fast-track rule: Approved to meet minimum launches → ${a.indication} [${a.modality}], NPV $${fmtM(final)}M.`); collectLaunchPrice(a); }
+}
+
+
+/* === Override: disable fairness / fast-track === */
+function ensureAtLeastOneApproval(){ return; }
+
+/* Summary */
+function showSummary(){
+  
+  const approved = State.deck.filter(a=>a.status==='Approved');
+  const totalNPV_M = approved.reduce((s,a)=> s + a.wLow, 0);
+  const lives = approved.reduce((s,a)=> s + (a.gceaLives||0), 0);
+  const roi = State.startCapM>0? totalNPV_M/State.startCapM : 0;
+
+  const rows = [
+    ['Final Capital Remaining', `$${fmtM(State.cashM)}M`],
+    ['Approved Programs', `${approved.length}`],
+    ['Total Approved NPV', `$${fmtM(totalNPV_M)}M`],
+    ['ROI multiple', `${fmtM(roi)}`],
+    ['Estimated Lives Impacted (US, GCEA)', `${lives.toLocaleString()}`],
+  ];
+
+  const host = $('#summaryText');
+  if(host){
+    const tbl = document.createElement('table');
+    const tb = document.createElement('tbody');
+    rows.forEach(([k,v])=>{
+      const tr = document.createElement('tr');
+      const tdK = document.createElement('td'); tdK.textContent = k;
+      const tdV = document.createElement('td'); tdV.textContent = v; tdV.className = 'mono stat';
+      tr.appendChild(tdK); tr.appendChild(tdV); tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    host.innerHTML = '';
+    host.appendChild(tbl);
+  }
+  $('#summary').style.display = 'block';
+
+  const spentM = Math.max(0, State.startCapM - State.cashM);
+  if (typeof renderSummaryChart === 'function') {
+    renderSummaryChart({spentM, remainingM: State.cashM, approvedNPVM: totalNPV_M});
+  }
+}
+
+
+/* Summary Chart */
+function renderSummaryChart({spentM, remainingM, approvedNPVM}){
+  const host = $('#summaryChart');
+  if(!host) return;
+  host.innerHTML = '';
+
+  const w = 700, h = 280, pad = 40;
+  const data = [
+    {label:'Capital Spent ($M)', value: Math.max(0, spentM)},
+    {label:'Capital Remaining ($M)', value: Math.max(0, remainingM)},
+    {label:'Approved NPV ($M)', value: Math.max(0, approvedNPVM)}
+  ];
+  const maxVal = Math.max(1, ...data.map(d=>d.value));
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('width', w);
+  svg.setAttribute('height', h);
+  svg.style.display = 'block';
+  svg.style.width = '100%';
+  svg.style.maxWidth = w + 'px';
+
+  // Background
+  const bg = document.createElementNS(svg.namespaceURI,'rect');
+  bg.setAttribute('x', 0); bg.setAttribute('y', 0);
+  bg.setAttribute('width', w); bg.setAttribute('height', h);
+  bg.setAttribute('fill', 'none');
+  svg.appendChild(bg);
+
+  // Axis line
+  const axis = document.createElementNS(svg.namespaceURI,'line');
+  axis.setAttribute('x1', pad);
+  axis.setAttribute('y1', h - pad);
+  axis.setAttribute('x2', w - pad);
+  axis.setAttribute('y2', h - pad);
+  axis.setAttribute('stroke', '#374151');
+  axis.setAttribute('stroke-width', '1');
+  svg.appendChild(axis);
+
+  const innerW = w - pad*2;
+  const innerH = h - pad*2;
+  const slotW = innerW / data.length;
+  const barW = slotW * 0.55;
+  const barOffset = (slotW - barW) / 2;
+
+  data.forEach((d, i) => {
+    const x = pad + i*slotW + barOffset;
+    const barH = (d.value / maxVal) * innerH;
+    const y = (h - pad) - barH;
+
+    // Bar
+    const rect = document.createElementNS(svg.namespaceURI,'rect');
+    rect.setAttribute('x', x);
+    rect.setAttribute('y', y);
+    rect.setAttribute('width', barW);
+    rect.setAttribute('height', barH);
+    rect.setAttribute('fill', '#22d3ee');
+    rect.setAttribute('rx', 6);
+    svg.appendChild(rect);
+
+    // Value label
+    const val = document.createElementNS(svg.namespaceURI,'text');
+    val.setAttribute('x', x + barW/2);
+    val.setAttribute('y', y - 6);
+    val.setAttribute('text-anchor', 'middle');
+    val.setAttribute('font-size', '12');
+    val.setAttribute('fill', '#e5e7eb');
+    val.textContent = `$${fmtM(d.value)}M`;
+    svg.appendChild(val);
+
+    // Category label (wrap if necessary)
+    const lab = document.createElementNS(svg.namespaceURI,'text');
+    lab.setAttribute('x', x + barW/2);
+    lab.setAttribute('y', h - pad + 16);
+    lab.setAttribute('text-anchor', 'middle');
+    lab.setAttribute('font-size', '11');
+    lab.setAttribute('fill', '#9ca3af');
+    lab.textContent = d.label;
+    svg.appendChild(lab);
+  });
+
+  host.appendChild(svg);
+  const section = $('#summaryChartSection');
+  if(section) section.style.display = 'block';
+}
+
+/* Boot */
+(function boot(){
+  try {
+    State.master = loadCSV(EMBEDDED_CSV);
+  } catch(e) {
+    console.error('Embedded dataset load error:', e);
+  }
+  reseed();
+  renderStatus();
+})();
+
+/* Buttons */
+$('#btnDeal').addEventListener('click', ()=>{ reseed(); deal(); });
+$('#btnReset').addEventListener('click', ()=>{ location.reload(); });
+$('#btnAllocate').addEventListener('click', allocateAndResolve);
+$('#btnFDA').addEventListener('click', finalizeFDA);
+</script>
+</body>
+</html>
